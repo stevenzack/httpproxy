@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -112,6 +111,8 @@ func tunnel(r *Request, c *net.TCPConn) error {
 
 	go func() {
 		buf := make([]byte, 4<<20)
+		total := 0
+		// cache := new(bytes.Buffer)
 		for {
 			n, e := a.Read(buf)
 			if e != nil {
@@ -121,8 +122,13 @@ func tunnel(r *Request, c *net.TCPConn) error {
 			if n == 0 {
 				continue
 			}
+			total += n
 			fmt.Print("\n----- w n=", n, " -----\n", sanitizeString(buf[:n]))
-
+			// cache.Write(buf[:n])
+			// if total < 6000 {
+			// 	continue
+			// }
+			// time.Sleep(time.Second)
 			_, e = c.Write(buf[:n])
 			if e != nil {
 				log.Println(e)
@@ -151,8 +157,12 @@ func tunnel(r *Request, c *net.TCPConn) error {
 }
 
 func sanitizeString(b []byte) string {
-	o, _ := json.Marshal(string(b))
-	return string(o)
+	// o, _ := json.Marshal(string(b))
+	// return string(o)
+	if len(b) < 100 {
+		return fmt.Sprint(b)
+	}
+	return fmt.Sprint(b)
 }
 
 type Request struct {
@@ -387,6 +397,9 @@ func read(c io.Reader, handleLine func(line string) (int64, error), handleBody f
 		}
 
 		if neverRead && buf[0] < '0' {
+			if buf[0] == 22 {
+				return fmt.Errorf("you seem to request HTTPS on a HTTP server")
+			}
 			return fmt.Errorf("the request message is not in English")
 		}
 		neverRead = false
