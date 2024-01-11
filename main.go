@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -12,11 +13,15 @@ import (
 	"strings"
 )
 
+var port = flag.String("p", ":8080", "IP and port of the server")
+
 func init() {
 	log.SetFlags(log.Lshortfile)
 }
 func main() {
-	httpsProxy(":8080")
+	flag.Parse()
+
+	httpsProxy(*port)
 }
 func httpsProxy(addr string) {
 	l, e := net.Listen("tcp", addr)
@@ -42,6 +47,9 @@ func handleHTTP(conn net.Conn) {
 	}
 	r, e := readReq(c)
 	if e != nil {
+		if e == io.EOF {
+			return
+		}
 		log.Println(e)
 		return
 	}
@@ -50,6 +58,9 @@ func handleHTTP(conn net.Conn) {
 		//tunnel https
 		e = tunnel(r, c)
 		if e != nil {
+			if e == io.EOF || strings.Contains(e.Error(), "reset ") {
+				return
+			}
 			log.Println(e)
 			return
 		}
@@ -111,24 +122,15 @@ func tunnel(r *Request, c *net.TCPConn) error {
 
 	go func() {
 		buf := make([]byte, 4<<20)
-		total := 0
-		// cache := new(bytes.Buffer)
 		for {
 			n, e := a.Read(buf)
 			if e != nil {
-				log.Println(e)
 				return
 			}
 			if n == 0 {
 				continue
 			}
-			total += n
-			fmt.Print("\n----- w n=", n, " -----\n", sanitizeString(buf[:n]))
-			// cache.Write(buf[:n])
-			// if total < 6000 {
-			// 	continue
-			// }
-			// time.Sleep(time.Second)
+			// fmt.Print("\n----- w n=", n, " -----\n", sanitizeString(buf[:n]))
 			_, e = c.Write(buf[:n])
 			if e != nil {
 				log.Println(e)
@@ -140,13 +142,12 @@ func tunnel(r *Request, c *net.TCPConn) error {
 	for {
 		n, e := c.Read(buf)
 		if e != nil {
-			log.Println(e)
 			return e
 		}
 		if n == 0 {
 			continue
 		}
-		fmt.Print("\n----- r -----\n", sanitizeString(buf[:n]))
+		// fmt.Print("\n----- r -----\n", sanitizeString(buf[:n]))
 
 		_, e = a.Write(buf[:n])
 		if e != nil {
@@ -373,6 +374,9 @@ func readReq(c io.Reader) (*Request, error) {
 		r.Body.Write(b)
 	})
 	if e != nil {
+		if e == io.EOF {
+			return nil, e
+		}
 		log.Println(e)
 		return nil, e
 	}
@@ -389,6 +393,9 @@ func read(c io.Reader, handleLine func(line string) (int64, error), handleBody f
 	for {
 		n, e := c.Read(buf)
 		if e != nil {
+			if e == io.EOF {
+				return nil
+			}
 			log.Println(e)
 			return e
 		}
